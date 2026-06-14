@@ -1,24 +1,45 @@
-# GAIMDA – 图注意力网络用于药物-微生物关联预测
+GAIMDA
 
-GAIMDA 是一个基于图注意力网络（GAT）和卷积解码器（CNN）的端到端模型，用于预测药物与微生物之间的潜在关联。模型采用直推式学习（transductive learning），通过动态负采样和五折交叉验证进行训练与评估。
+Description
+PyTorch implementation of GAIMDA, a gated attention-based model for microbe-drug association prediction. It achieves state-of-the-art performance on MDAD and aBiofilm datasets via outer product convolutional decoding and dynamic negative sampling.
 
-## 主要特性
+Dataset Information
+Supported datasets:
+- MDAD: 1373 drugs, 173 microbes, 2470 known associations
+- aBiofilm: 1720 drugs, 140 microbes, 2884 known associations
 
-- **图编码器**：多层 GAT，带门控机制（Gated-GAT），捕捉药物和微生物的异质图结构。
-- **解码器**：基于外积和 CNN 的交互图解码器，也可切换为 MLP 解码器。
-- **安全特征构建**：避免数据泄露，输入特征仅包含相似性矩阵，不包含关联标签。
-- **动态负采样**：训练中无限生成负样本，提升泛化能力。
-- **五折交叉验证**：自动保存最佳模型权重和预测分数。
+Place dataset files under `./data/{dataset_name}/`, including the interaction matrix and optional structural/functional similarity files.
 
-## 环境要求
+ Code Information
+- main.py: 5-fold cross-validation, training loop and evaluation
+- GAT.py: GAIMDA main model and CNN decoder
+- layers.py: Gated graph attention layer
+- datadeal.py: Similarity calculation and data preprocessing utilities
+- utils.py: Evaluation metrics and graph normalization
 
-- Python 3.7+
-- PyTorch 1.9+
-- NumPy
-- SciPy
-- scikit-learn
-- Pandas（可选，用于数据处理）
+Requirements
+- Python 3.8+
+- PyTorch, NumPy, SciPy, scikit-learn, pandas
 
-快速安装依赖：
-```bash
-pip install -r requirements.txt
+Install dependencies:
+pip install torch numpy scipy scikit-learn pandas
+
+Usage Instructions
+1. Put dataset files into the `data` directory
+2. Adjust `DATASET_NAME` and hyperparameters in `main.py`
+3. Run training:
+python main.py
+
+Default parameters: seed=42, hidden dim=128, embedding dim=64, 4 attention heads, dropout=0.5, lr=0.0001, KNN k=15, 30000 training steps, batch size=256.
+
+Methodology
+- Preprocessing: GIP kernel similarity, zero-padded safe feature construction, masked KNN heterogeneous graph, infinite dynamic negative sampling
+- Encoder: Two-layer multi-head gated graph attention network
+- Decoder: Outer product + 2D CNN for high-order interaction modeling
+- Training: AdamW optimizer, BCEWithLogitsLoss, 5-fold cross-validation
+
+Citations
+If you use this code in your work, please cite the GAIMDA paper and the original MDAD / aBiofilm datasets.
+
+License
+MIT License 
