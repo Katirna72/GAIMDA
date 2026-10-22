@@ -3,6 +3,7 @@ import torch.optim as optim
 import torch.nn as nn
 import numpy as np
 import random
+import pandas as pd
 from datadeal import *
 from GAT import GAIMDA  
 from utils import get_metrics, normalize
@@ -18,6 +19,7 @@ if torch.cuda.is_available():
 
 DATASET_NAME = 'MDAD'
 os.makedirs('results_data', exist_ok=True)
+os.makedirs('results', exist_ok=True)
 
 def compute_fold_features_and_adj(train_interaction, num_drugs, num_microbes, k=15):
     drug_gip = GIP_Calculate1(train_interaction)
@@ -70,8 +72,8 @@ def evaluate(model, features, adj_tensor, eval_pos, eval_neg, num_drugs, device)
         
         logits = model(features, adj_tensor, m_tensor, d_tensor)
         scores = torch.sigmoid(logits).cpu().numpy()
-        auc, aupr = get_metrics(labels, scores)
-    return auc, aupr, labels, scores
+        auc, aupr, f1 = get_metrics(labels, scores, threshold=0.5)
+    return auc, aupr, f1, labels, scores
 
 def run_main():
     torch.cuda.empty_cache()
@@ -82,8 +84,7 @@ def run_main():
     pos_indices = np.argwhere(interaction_matrix == 1)
     
     np.random.shuffle(pos_indices)
-    fold_size = len(pos_indices) // 5
-    folds = [pos_indices[i * fold_size : (i + 1) * fold_size] for i in range(5)]
+    folds = np.array_split(pos_indices, 5)
     
     test_results = []
 
@@ -118,7 +119,6 @@ def run_main():
         val_neg = sample_negatives(len(val_pos))
         test_neg = sample_negatives(len(test_pos))
         
-        # 初始化模型
         model = GAIMDA(
             nfeat=features.shape[1],
             nhid=128, out_dim=64, dropout=0.5, alpha=0.2, nheads=4
@@ -150,23 +150,27 @@ def run_main():
             optimizer.step()
             
             if step % 2000 == 0:
-                val_auc, val_aupr, _, _ = evaluate(model, features, adj_tensor, val_pos, val_neg, num_drugs, device)
+                val_auc, val_aupr, val_f1, _, _ = evaluate(model, features, adj_tensor, val_pos, val_neg, num_drugs, device)
                 if val_auc > best_val_auc:
                     best_val_auc = val_auc
                     torch.save(model.state_dict(), best_checkpoint_path)
                 model.train()
         
         model.load_state_dict(torch.load(best_checkpoint_path))
-        test_auc, test_aupr, test_lbl, test_scr = evaluate(model, features, adj_tensor, test_pos, test_neg, num_drugs, device)
-        print(f"Fold {fold_idx + 1} Final Test AUC: {test_auc:.4f} | Test AUPR: {test_aupr:.4f}")
-        test_results.append([test_auc, test_aupr])
+        test_auc, test_aupr, test_f1, test_lbl, test_scr = evaluate(model, features, adj_tensor, test_pos, test_neg, num_drugs, device)
+        print(f"Fold {fold_idx + 1} Final Test AUC: {test_auc:.4f} | Test AUPR: {test_aupr:.4f} | Test F1: {test_f1:.4f}")
+        test_results.append([fold_idx + 1, test_auc, test_aupr, test_f1])
 
-    test_results_arr = np.array(test_results)
-    mean_auc = np.mean(test_results_arr[:, 0])
-    std_auc = np.std(test_results_arr[:, 0])
-    mean_aupr = np.mean(test_results_arr[:, 1])
-    std_aupr = np.std(test_results_arr[:, 1])
-    print(f"\nFinal Independent Test Results: AUC = {mean_auc:.4f} ± {std_auc:.4f}, AUPR = {mean_aupr:.4f} ± {std_aupr:.4f}")
+    df_results = pd.DataFrame(test_results, columns=["Fold", "AUC", "AUPR", "F1"])
+    df_results.to_csv(f"results/fold_metrics_{DATASET_NAME}.csv", index=False)
+
+    mean_auc = df_results["AUC"].mean()
+    std_auc = df_results["AUC"].std()
+    mean_aupr = df_results["AUPR"].mean()
+    std_aupr = df_results["AUPR"].std()
+    mean_f1 = df_results["F1"].mean()
+    std_f1 = df_results["F1"].std()
+    print(f"\nFinal Independent Test Results: AUC = {mean_auc:.4f} ± {std_auc:.4f}, AUPR = {mean_aupr:.4f} ± {std_aupr:.4f}, F1 = {mean_f1:.4f} ± {std_f1:.4f}")
 
 if __name__ == "__main__":
     run_main()
