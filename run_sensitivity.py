@@ -13,9 +13,8 @@ import scipy.sparse as sp
 
 parser = argparse.ArgumentParser(description="GAIMDA Hyperparameter Sensitivity Analysis")
 parser.add_argument('--dataset', type=str, default='MDAD', choices=['MDAD', 'aBiofilm'])
-parser.add_argument('--param', type=str, default='lr', choices=['lr', 'dp', 'K'],
-                    help="Target hyperparameter: lr (learning rate), dp (dropout), K (attention heads)")
-parser.add_argument('--steps', type=int, default=3000, help="Training steps per hyperparameter run")
+parser.add_argument('--param', type=str, default='lr', choices=['lr', 'dp', 'K'])
+parser.add_argument('--steps', type=int, default=3000)
 args = parser.parse_args()
 
 seed = 42
@@ -70,16 +69,17 @@ def run_sensitivity_evaluation(param_name, dataset_name, total_steps):
         'K': [1, 2, 4, 8, 16]
     }
     values_to_test = grid[param_name]
-    print(f" Sensitivity Analysis: [{param_name}] on {dataset_name}")
-    print(f" Grid candidates: {values_to_test}")
+    print(f"Validation Split Sensitivity Analysis: [{param_name}] on {dataset_name}")
+    print(f"Candidates: {values_to_test}")
+
     interaction_matrix = np.loadtxt(f"./data/{dataset_name}/drug_microbe_matrix.txt")
     num_drugs, num_microbes = interaction_matrix.shape
     pos_indices = np.argwhere(interaction_matrix == 1)
     np.random.shuffle(pos_indices)
-    folds = np.array_split(pos_indices, 5)
 
-    test_pos = folds[0]
-    train_pos = np.vstack([folds[i] for i in range(1, 5)])
+    val_size = len(pos_indices) // 10
+    val_pos = pos_indices[:val_size]
+    train_pos = pos_indices[val_size:]
 
     train_interaction = np.zeros_like(interaction_matrix)
     for r, c in train_pos:
@@ -98,7 +98,7 @@ def run_sensitivity_evaluation(param_name, dataset_name, total_steps):
                 negs.append([r, c])
         return np.array(negs)
 
-    test_neg = sample_negs(len(test_pos))
+    val_neg = sample_negs(len(val_pos))
     results = []
 
     for val in values_to_test:
@@ -106,7 +106,7 @@ def run_sensitivity_evaluation(param_name, dataset_name, total_steps):
         current_dp = val if param_name == 'dp' else 0.5
         current_K = int(val) if param_name == 'K' else 4
 
-        print(f"\nTesting {param_name} = {val} (lr={current_lr}, dp={current_dp}, K={current_K})...")
+        print(f"\nEvaluating candidate {param_name} = {val} on validation split...")
 
         model = GAIMDA(
             nfeat=features.shape[1],
@@ -141,19 +141,19 @@ def run_sensitivity_evaluation(param_name, dataset_name, total_steps):
 
         model.eval()
         with torch.no_grad():
-            d_all = np.concatenate([test_pos[:, 0], test_neg[:, 0]])
-            m_all = np.concatenate([test_pos[:, 1], test_neg[:, 1]]) + num_drugs
-            labels = np.array([1.0] * len(test_pos) + [0.0] * len(test_neg))
+            d_all = np.concatenate([val_pos[:, 0], val_neg[:, 0]])
+            m_all = np.concatenate([val_pos[:, 1], val_neg[:, 1]]) + num_drugs
+            labels = np.array([1.0] * len(val_pos) + [0.0] * len(val_neg))
             logits = model(features, adj_tensor, torch.LongTensor(m_all).to(device), torch.LongTensor(d_all).to(device))
             scores = torch.sigmoid(logits).cpu().numpy()
             auc, aupr, f1 = get_metrics(labels, scores, threshold=0.5)
 
-        print(f"Result for {param_name}={val} -> AUC: {auc:.4f}, AUPR: {aupr:.4f}, F1: {f1:.4f}")
-        results.append({param_name: val, "AUC": auc, "AUPR": aupr, "F1": f1})
+        print(f"Validation metric for {param_name}={val} -> AUC: {auc:.4f}, AUPR: {aupr:.4f}, F1: {f1:.4f}")
+        results.append({param_name: val, "Val_AUC": auc, "Val_AUPR": aupr, "Val_F1": f1})
 
     df = pd.DataFrame(results)
     df.to_csv(f"results/sensitivity_{param_name}_{dataset_name}.csv", index=False)
-    print(f"\nSaved sensitivity records to results/sensitivity_{param_name}_{dataset_name}.csv")
+    print(f"\nSaved validation sensitivity records to results/sensitivity_{param_name}_{dataset_name}.csv")
 
 if __name__ == "__main__":
     run_sensitivity_evaluation(args.param, args.dataset, args.steps)
