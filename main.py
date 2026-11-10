@@ -159,10 +159,12 @@ def run_main():
         model.load_state_dict(torch.load(best_checkpoint_path))
         test_auc, test_aupr, test_f1, test_lbl, test_scr = evaluate(model, features, adj_tensor, test_pos, test_neg, num_drugs, device)
         print(f"Fold {fold_idx + 1} Final Test AUC: {test_auc:.4f} | Test AUPR: {test_aupr:.4f} | Test F1: {test_f1:.4f}")
-        test_results.append([fold_idx + 1, test_auc, test_aupr, test_f1])
+        test_results.append(["GAIMDA(Ours)", fold_idx + 1, test_auc, test_aupr, test_f1])
 
-    df_results = pd.DataFrame(test_results, columns=["Fold", "AUC", "AUPR", "F1"])
-    df_results.to_csv(f"results/fold_metrics_{DATASET_NAME}.csv", index=False)
+    df_results = pd.DataFrame(test_results, columns=["Model", "Fold", "AUC", "AUPR", "F1"])
+    save_path = f"results/gaimda_fold_metrics_{DATASET_NAME}.csv"
+    df_results.to_csv(save_path, index=False)
+    print(f"\n[Saved] GAIMDA fold metrics successfully saved to: {save_path}")
 
     mean_auc = df_results["AUC"].mean()
     std_auc = df_results["AUC"].std()
